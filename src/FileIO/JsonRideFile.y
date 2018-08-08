@@ -113,7 +113,7 @@ static QString protect(const QString string)
 %token JS_STRING JS_INTEGER JS_FLOAT
 %token RIDE STARTTIME RECINTSECS DEVICETYPE IDENTIFIER
 %token OVERRIDES
-%token TAGS INTERVALS NAME START STOP
+%token TAGS INTERVALS NAME START STOP COLOR TEST
 %token CALIBRATIONS VALUE VALUES UNIT UNITS
 %token REFERENCES
 %token XDATA
@@ -202,14 +202,26 @@ tag_value : string                      { jc->JsonTagValue = jc->JsonString; }
  */
 intervals: INTERVALS ':' '[' interval_list ']' ;
 interval_list: interval | interval_list ',' interval ;
+interval_test:
+                | ',' TEST ':' string       { jc->JsonInterval.test = (jc->JsonString == "true" ? true : false); }
+                ;
+
+interval_color:
+                | ',' COLOR ':' string      { jc->JsonInterval.color.setNamedColor(jc->JsonString); }
+                ;
+
 interval: '{' NAME ':' string ','       { jc->JsonInterval.name = jc->JsonString; }
               START ':' number ','      { jc->JsonInterval.start = jc->JsonNumber; }
               STOP ':' number           { jc->JsonInterval.stop = jc->JsonNumber; }
+              interval_color
+              interval_test
           '}'
                                         { jc->JsonRide->addInterval(RideFileInterval::USER,
                                                                 jc->JsonInterval.start,
                                                                 jc->JsonInterval.stop,
-                                                                jc->JsonInterval.name);
+                                                                jc->JsonInterval.name,
+                                                                jc->JsonInterval.color,
+                                                                jc->JsonInterval.test);
                                           jc->JsonInterval = RideFileInterval();
                                         }
 
@@ -539,7 +551,9 @@ JsonFileReader::toByteArray(Context *, const RideFile *ride, bool withAlt, bool 
             out += "\t\t\t{ ";
             out += "\"NAME\":\"" + protect(i->name) + "\"";
             out += ", \"START\": " + QString("%1").arg(i->start);
-            out += ", \"STOP\": " + QString("%1").arg(i->stop) + " }";
+            out += ", \"STOP\": " + QString("%1").arg(i->stop);
+            out += ", \"COLOR\":" + QString("\"%1\"").arg(i->color.name());
+            out += ", \"PTEST\":\"" + QString("%1").arg(i->test ? "true" : "false") + "\" }";
         }
         out += "\n\t\t]";
     }

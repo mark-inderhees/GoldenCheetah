@@ -89,8 +89,8 @@ QMAKE_CFLAGS_ISYSTEM =
 ### DISTRIBUTED SOURCE [Snaffled in sources to avoid further dependencies]
 ###=======================================================================
 
-# qwt, qxt, libz, json and qwtcurve
-INCLUDEPATH += ../qwt/src ../qxt/src ../qtsolutions/json ../qtsolutions/qwtcurve
+# qwt, qxt, libz, json, lmfit and qwtcurve
+INCLUDEPATH += ../qwt/src ../qxt/src ../qtsolutions/json ../qtsolutions/qwtcurve ../lmfit ../levmar
 DEFINES += QXT_STATIC
 
 # to make sure we are toolchain neutral we NEVER refer to a lib
@@ -251,20 +251,6 @@ RESOURCES = $${PWD}/Resources/application.qrc $${PWD}/Resources/RideWindow.qrc
 #                                                                             #
 ###############################################################################
 
-###========================================
-### OPTIONAL => LMFIT Model fitting library
-###========================================
-!isEmpty(LMFIT_INSTALL) {
-
-    # we will work out the rest if you tell us where it is installed
-    isEmpty(LMFIT_INCLUDE) { LMFIT_INCLUDE = $${LMFIT_INSTALL}/src }
-    isEmpty(LMFIT_LIBS)    { LMFIT_LIBS    = -L$${LMFIT_INSTALL}/lib -llmfit }
-
-    INCLUDEPATH += $${LMFIT_INCLUDE}
-    LIBS        += $${LMFIT_LIBS}
-    DEFINES     += GC_HAVE_LMFIT
-}
-
 ###=========================
 ### OPTIONAL => Embed Python
 ###=========================
@@ -343,33 +329,6 @@ contains(DEFINES, "GC_WANT_R") {
 
     ## For hardware accelerated scene rendering
     QT += opengl
-}
-
-###====================
-### OPTIONAL => KQOAUTH
-###====================
-
-unix:!macx {
-
-    # build from version in repo for Linux builds since
-    # kqoauth is not packaged for the Debian and this makes
-    # life much easier for the package maintainer
-    INCLUDEPATH += $${PWD}/../kqoauth
-    LIBS        += $${PWD}/../kqoauth/libkqoauth.a
-    DEFINES     += GC_HAVE_KQOAUTH
-
-} else {
-
-    !isEmpty(KQOAUTH_INSTALL) {
-
-        # we will work out the rest if you tell us where it is installed
-        isEmpty(KQOAUTH_INCLUDE) { KQOAUTH_INCLUDE = $${KQOAUTH_INSTALL}/src }
-        isEmpty(KQOAUTH_LIBS)    { KQOAUTH_LIBS    = -L$${KQOAUTH_INSTALL}/lib -lkqoauth }
-
-        INCLUDEPATH += $${KQOAUTH_INCLUDE}
-        LIBS        += $${KQOAUTH_LIBS}
-        DEFINES     += GC_HAVE_KQOAUTH
-    }
 }
 
 ###=======================================================
@@ -721,7 +680,7 @@ HEADERS += Charts/Aerolab.h Charts/AerolabWindow.h Charts/AllPlot.h Charts/AllPl
 
 # cloud services
 HEADERS += Cloud/BodyMeasuresDownload.h Cloud/CalDAVCloud.h Cloud/CalendarDownload.h Cloud/CloudService.h \
-           Cloud/LocalFileStore.h Cloud/OAuthDialog.h Cloud/OAuthManager.h Cloud/TodaysPlanBodyMeasures.h \
+           Cloud/LocalFileStore.h Cloud/OAuthDialog.h Cloud/TodaysPlanBodyMeasures.h \
            Cloud/WithingsDownload.h Cloud/Strava.h Cloud/CyclingAnalytics.h Cloud/RideWithGPS.h \
            Cloud/TrainingsTageBuch.h Cloud/Selfloops.h Cloud/Velohero.h Cloud/SportsPlusHealth.h \
            Cloud/AddCloudWizard.h Cloud/Withings.h Cloud/HrvMeasuresDownload.h Cloud/Xert.h
@@ -769,7 +728,8 @@ HEADERS += Planning/PlanningWindow.h
 # contrib
 HEADERS += ../qtsolutions/codeeditor/codeeditor.h ../qtsolutions/json/mvjson.h ../qtsolutions/qwtcurve/qwt_plot_gapped_curve.h \
            ../qxt/src/qxtspanslider.h ../qxt/src/qxtspanslider_p.h ../qxt/src/qxtstringspinbox.h ../qzip/zipreader.h \
-           ../qzip/zipwriter.h
+           ../qzip/zipwriter.h ../lmfit/lmcurve.h  ../lmfit/lmcurve_tyd.h  ../lmfit/lmmin.h  ../lmfit/lmstruct.h \
+           ../levmar/compiler.h  ../levmar/levmar.h  ../levmar/lm.h  ../levmar/misc.h
 
 # Train View
 HEADERS += Train/AddDeviceWizard.h Train/CalibrationData.h Train/ComputrainerController.h Train/Computrainer.h Train/DeviceConfiguration.h \
@@ -814,7 +774,7 @@ SOURCES += Charts/Aerolab.cpp Charts/AerolabWindow.cpp Charts/AllPlot.cpp Charts
 
 ## Cloud Services / Web resources
 SOURCES += Cloud/BodyMeasuresDownload.cpp Cloud/CalDAVCloud.cpp Cloud/CalendarDownload.cpp Cloud/CloudService.cpp \
-           Cloud/LocalFileStore.cpp Cloud/OAuthDialog.cpp Cloud/OAuthManager.cpp Cloud/TodaysPlanBodyMeasures.cpp \
+           Cloud/LocalFileStore.cpp Cloud/OAuthDialog.cpp Cloud/TodaysPlanBodyMeasures.cpp \
            Cloud/WithingsDownload.cpp Cloud/Strava.cpp Cloud/CyclingAnalytics.cpp Cloud/RideWithGPS.cpp \
            Cloud/TrainingsTageBuch.cpp Cloud/Selfloops.cpp Cloud/Velohero.cpp Cloud/SportsPlusHealth.cpp \
            Cloud/AddCloudWizard.cpp Cloud/Withings.cpp Cloud/HrvMeasuresDownload.cpp Cloud/Xert.cpp
@@ -868,7 +828,12 @@ SOURCES += Planning/PlanningWindow.cpp
 
 ## Contributed solutions
 SOURCES += ../qtsolutions/codeeditor/codeeditor.cpp ../qtsolutions/json/mvjson.cpp ../qtsolutions/qwtcurve/qwt_plot_gapped_curve.cpp \
-           ../qxt/src/qxtspanslider.cpp ../qxt/src/qxtstringspinbox.cpp ../qzip/zip.cpp
+           ../qxt/src/qxtspanslider.cpp ../qxt/src/qxtstringspinbox.cpp ../qzip/zip.cpp \
+           ../lmfit/lmcurve.c ../lmfit/lmmin.c \
+           ../levmar/Axb.c ../levmar/lm_core.c ../levmar/lmbc_core.c \
+           ../levmar/lmblec_core.c ../levmar/lmbleic_core.c ../levmar/lmlec.c ../levmar/misc.c \
+           ../levmar/Axb_core.c ../levmar/lm.c ../levmar/lmbc.c ../levmar/lmblec.c ../levmar/lmbleic.c \
+           ../levmar/lmlec_core.c ../levmar/misc_core.c
 
 ## Train View Components
 SOURCES += Train/AddDeviceWizard.cpp Train/CalibrationData.cpp Train/ComputrainerController.cpp Train/Computrainer.cpp Train/DeviceConfiguration.cpp \

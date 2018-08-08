@@ -209,6 +209,11 @@ CriticalPowerWindow::CriticalPowerWindow(Context *context, bool rangemode) :
     QLabel *gridify = new QLabel(tr("Show grid"));
     cl->addRow(gridify, showGridCheck);
 
+    showTestCheck = new QCheckBox(this);
+    showTestCheck->setChecked(true); // default on
+    QLabel *testify = new QLabel(tr("Show Performance Tests"));
+    cl->addRow(testify, showTestCheck);
+
     showBestCheck = new QCheckBox(this);
     showBestCheck->setChecked(true); // default on
     QLabel *bestify = new QLabel(tr("Show Bests"));
@@ -264,11 +269,25 @@ CriticalPowerWindow::CriticalPowerWindow(Context *context, bool rangemode) :
     modelCombo->addItem(tr("2 parameter"));
     modelCombo->addItem(tr("3 parameter"));
     modelCombo->addItem(tr("Extended CP"));
+#if 0 // disable until model fitting errors are fixed (!!!)
     modelCombo->addItem(tr("Multicomponent"));
     modelCombo->addItem(tr("Ward-Smith"));
+#endif
     modelCombo->setCurrentIndex(1);
 
     mcl->addRow(new QLabel(tr("Model")), modelCombo);
+
+    fitCombo= new QComboBox(this);
+    fitCombo->addItem(tr("Envelope"));
+    fitCombo->addItem(tr("Least Squares (LMA)"));
+    fitCombo->setCurrentIndex(0); // default to envelope, backwards compatibility
+    mcl->addRow(new QLabel(tr("Curve Fit")), fitCombo);
+
+    fitdataCombo= new QComboBox(this);
+    fitdataCombo->addItem(tr("MMP bests"));
+    fitdataCombo->addItem(tr("Performance tests"));
+    fitdataCombo->setCurrentIndex(0); // default to MMP, backwards compatibility
+    mcl->addRow(new QLabel(tr("Data to fit")), fitdataCombo);
 
     mcl->addRow(new QLabel(tr(" ")));
     intervalLabel = new QLabel(tr("Search Interval"));
@@ -411,6 +430,7 @@ CriticalPowerWindow::CriticalPowerWindow(Context *context, bool rangemode) :
     ftpRank = new QLabel(tr("n/a"), this);
     eiTitle = new QLabel(tr("Endurance Index"), this);
     eiValue = new QLabel(tr("n/a"), this);
+    summary = new QLabel(tr(""), this);
 
     // autofill
     titleBlank->setAutoFillBackground(true);
@@ -430,6 +450,7 @@ CriticalPowerWindow::CriticalPowerWindow(Context *context, bool rangemode) :
     ftpRank->setAutoFillBackground(true);
     eiTitle->setAutoFillBackground(true);
     eiValue->setAutoFillBackground(true);
+    summary->setAutoFillBackground(true);
 
     // align all centered
     titleBlank->setAlignment(Qt::AlignHCenter | Qt::AlignVCenter);
@@ -468,6 +489,7 @@ CriticalPowerWindow::CriticalPowerWindow(Context *context, bool rangemode) :
     gridLayout->addWidget(ftpRank, 4, 2);
     gridLayout->addWidget(eiTitle, 5, 0);
     gridLayout->addWidget(eiValue, 5, 1);
+    gridLayout->addWidget(summary, 6, 0, 1, 3);
 
 #ifdef GC_HAVE_MUMODEL
     addHelper(QString(tr("Motor Unit Model")), new MUWidget(this, context));
@@ -500,6 +522,8 @@ CriticalPowerWindow::CriticalPowerWindow(Context *context, bool rangemode) :
 
     // model updated?
     connect(modelCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(modelChanged()));
+    connect(fitCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(fitChanged()));
+    connect(fitdataCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(fitChanged()));
     connect(anI1SpinBox, SIGNAL(valueChanged(double)), this, SLOT(modelParametersChanged()));
     connect(anI2SpinBox, SIGNAL(valueChanged(double)), this, SLOT(modelParametersChanged()));
     connect(aeI1SpinBox, SIGNAL(valueChanged(double)), this, SLOT(modelParametersChanged()));
@@ -530,6 +554,7 @@ CriticalPowerWindow::CriticalPowerWindow(Context *context, bool rangemode) :
     connect(rDeltaPercent, SIGNAL(stateChanged(int)), this, SLOT(rDeltaChanged()));
     connect(showHeatByDateCheck, SIGNAL(stateChanged(int)), this, SLOT(showHeatByDateChanged(int)));
     connect(showPercentCheck, SIGNAL(stateChanged(int)), this, SLOT(showPercentChanged(int)));
+    connect(showTestCheck, SIGNAL(stateChanged(int)), this, SLOT(showTestChanged(int)));
     connect(showBestCheck, SIGNAL(stateChanged(int)), this, SLOT(showBestChanged(int)));
     connect(filterBestCheck, SIGNAL(stateChanged(int)), this, SLOT(filterBestChanged(int)));
     connect(showGridCheck, SIGNAL(stateChanged(int)), this, SLOT(showGridChanged(int)));
@@ -638,6 +663,7 @@ CriticalPowerWindow::configChanged(qint32)
     ftpRank->setFont(font);
     eiTitle->setFont(font);
     eiValue->setFont(font);
+    summary->setFont(font);
 
     helper->setPalette(palette);
     titleBlank->setPalette(palette);
@@ -657,10 +683,11 @@ CriticalPowerWindow::configChanged(qint32)
     ftpRank->setPalette(whitepalette);
     eiTitle->setPalette(palette);
     eiValue->setPalette(whitepalette);
-
+    summary->setPalette(whitepalette);
     CPEdit->setPalette(whitepalette);
     CPLabel->setPalette(whitepalette);
     CPSlider->setPalette(whitepalette);
+
 
 #ifndef Q_OS_MAC
     QString style = QString("QSpinBox { background: %1; }").arg(GCColor::alternateColor(GColor(CPLOTBACKGROUND)).name());
@@ -671,13 +698,24 @@ CriticalPowerWindow::configChanged(qint32)
         helper->setStyleSheet(QString("background: %1; color: %2;").arg(GColor(CPLOTBACKGROUND).name())
                                                                       .arg(GColor(CPLOTMARKER).name()));
     }
+
+    // do after cascade above
+    summary->setStyleSheet(QString("background-color: %1; color: %2;").arg(GColor(CPLOTBACKGROUND).name()).arg(QColor(Qt::gray).name()));
 #endif
+
 
     QPen gridPen(GColor(CPLOTGRID));
     grid->setPen(gridPen);
 
     // set ride
     rideSelected();
+}
+
+void
+CriticalPowerWindow::fitChanged()
+{
+    // gets a replot
+    modelParametersChanged();
 }
 
 void
@@ -726,6 +764,7 @@ CriticalPowerWindow::modelChanged()
             velo2->show();
             velo3->show();
 
+            // intentional fallthrough
             // and drop through into case 1 below ...
 
     case 1 : // Classic 2 param model 2-20 default (per literature)
@@ -773,10 +812,10 @@ CriticalPowerWindow::modelChanged()
             laeI2SpinBox->hide();
 
             // Default values
-            anI1SpinBox->setValue(1800);
-            anI2SpinBox->setValue(2400);
-            aeI1SpinBox->setValue(2400);
-            aeI2SpinBox->setValue(3600);
+            anI1SpinBox->setValue(180);
+            anI2SpinBox->setValue(240);
+            aeI1SpinBox->setValue(600);
+            aeI2SpinBox->setValue(1200);
 
             break;
 
@@ -857,7 +896,9 @@ CriticalPowerWindow::modelParametersChanged()
                         laeI1SpinBox->value(),
                         laeI2SpinBox->value(),
                         modelCombo->currentIndex(),
-                        variant());
+                        variant(),
+                        fitCombo->currentIndex(),
+                        fitdataCombo->currentIndex());
 
     // and apply
     if (amVisible() && myRideItem != NULL) {
@@ -921,10 +962,6 @@ CriticalPowerWindow::forceReplot()
         dateRangeChanged(myDateRange); 
 
     } else {
-        Season season = seasons->seasons.at(cComboSeason->currentIndex());
-
-        // Refresh aggregated curve (ride added/filter changed)
-        cpPlot->setDateRange(season.getStart(), season.getEnd());
 
         // if visible make the changes visible
         // rideSelected is easiest way
@@ -1208,6 +1245,19 @@ CriticalPowerWindow::rideSelected()
             delete hoverCurve;
             hoverCurve = NULL;
         }
+
+        // when plotting a single ride, the date range is either as selected
+        // for a fixed period (e.g. 2018) or it is for a fixed period
+        // prior to the ride (e.g. Last 28 days), we look at the
+        // date range id to map to known first, then just use the season
+        // range, that way as you look at older rides the dates being
+        // used change to reflect capability at that time, whilst in
+        // range mode (trends) its just the season selected.
+        Season season = seasons->seasons.at(cComboSeason->currentIndex());
+
+        // Refresh aggregated curve (ride added/filter changed)
+        if (season.prior() == 0) cpPlot->setDateRange(season.getStart(), season.getEnd()); // fixed
+        else cpPlot->setDateRange(myRideItem->dateTime.date().addDays(season.prior()), myRideItem->dateTime.date());
     }
 
     if (!amVisible()) return;
@@ -1544,7 +1594,7 @@ CriticalPowerWindow::addSeries()
 void
 CriticalPowerWindow::updateOptions(CriticalSeriesType series)
 {
-    if ((series == watts || series == wattsKg || series == kph) && modelCombo->currentIndex() >= 1) {
+    if ((series == watts || series == wattsKg || series == kph || series == aPower || series == aPowerKg) && modelCombo->currentIndex() >= 1) {
         helperWidget()->show();
     } else {
         helperWidget()->hide();
@@ -1580,7 +1630,10 @@ CriticalPowerWindow::resetSeasons()
     // insert seasons
     for (int i=0; i <seasons->seasons.count(); i++) {
         Season season = seasons->seasons.at(i);
-        cComboSeason->addItem(season.getName());
+        // we add the id as user data since there are some 'fixed' ids
+        // that represent last 28 days etc that we can then use to offset
+        // from the date of the ride
+        cComboSeason->addItem(season.getName(), QVariant(season.id()));
     }
     // restore previous selection
     int index = cComboSeason->findText(prev);
@@ -1731,6 +1784,16 @@ CriticalPowerWindow::filterBestChanged(int state)
     if (rangemode) dateRangeChanged(DateRange());
     else cpPlot->setRide(currentRide);
 }
+void
+CriticalPowerWindow::showTestChanged(int state)
+{
+    cpPlot->setShowTest(state);
+
+    // redraw
+    if (rangemode) dateRangeChanged(DateRange());
+    else cpPlot->setRide(currentRide);
+}
+
 void
 CriticalPowerWindow::showBestChanged(int state)
 {

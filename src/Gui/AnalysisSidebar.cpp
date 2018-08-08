@@ -259,7 +259,8 @@ AnalysisSidebar::setRide(RideItem*ride)
             add->setText(0, interval->name);
             add->setData(0, Qt::UserRole, qVariantFromValue((void*)interval));
             add->setData(0, Qt::UserRole+1, QVariant(interval->color));
-            add->setFlags(Qt::ItemIsEnabled 
+            add->setData(0, Qt::UserRole+2, QVariant(interval->test));
+            add->setFlags(Qt::ItemIsEnabled
 #if QT_VERSION >= 0x50101
                           | Qt::ItemNeverHasChildren
 #endif
@@ -562,10 +563,18 @@ AnalysisSidebar::showIntervalMenu(const QPoint &pos)
         if (rideItem && rideItem->intervalsSelected(RideFileInterval::USER).count() == 1) {
             menu.addSeparator();
             QAction *actEditInt = new QAction(tr("Edit interval"), intervalTree);
-            QAction *actDeleteInt = new QAction(tr("Delete interval"), intervalTree);
             connect(actEditInt, SIGNAL(triggered(void)), this, SLOT(editIntervalSelected(void)));
-            connect(actDeleteInt, SIGNAL(triggered(void)), this, SLOT(deleteIntervalSelected(void)));
             menu.addAction(actEditInt);
+
+            // only add if not a performance test already !
+            if (rideItem->intervalsSelected(RideFileInterval::USER).at(0)->test == false) {
+                QAction *actPerfInt = new QAction(tr("Mark as a performance test"), intervalTree);
+                connect(actPerfInt, SIGNAL(triggered(void)), this, SLOT(perfTestIntervalSelected(void)));
+                menu.addAction(actPerfInt);
+            }
+
+            QAction *actDeleteInt = new QAction(tr("Delete interval"), intervalTree);
+            connect(actDeleteInt, SIGNAL(triggered(void)), this, SLOT(deleteIntervalSelected(void)));
             menu.addAction(actDeleteInt);
         }
 
@@ -602,6 +611,13 @@ AnalysisSidebar::showIntervalMenu(const QPoint &pos)
 
         menu.addSeparator();
 
+        // CREATE NEW ROUTE SEGMENT IF GPS PRESENT (AND NOT ALREADY A ROUTE!)
+        if (type != RideFileInterval::USER) {
+
+            QAction *actPerf = new QAction(tr("Create a performance test"), intervalTree);
+            connect(actPerf, SIGNAL(triggered(void)), this, SLOT(createPerfTestIntervalSelected(void)));
+            menu.addAction(actPerf);
+        }
         // CREATE NEW ROUTE SEGMENT IF GPS PRESENT (AND NOT ALREADY A ROUTE!)
         if (type != RideFileInterval::ROUTE && 
             context->currentRideItem() && context->currentRideItem()->present.contains("G")) {
@@ -675,6 +691,49 @@ AnalysisSidebar::sortIntervals()
     if (change) {
         context->notifyIntervalsUpdate(context->rideItem());
         context->rideItem()->setDirty(true);
+    }
+}
+
+// mark *first selected* USER intervals as a performance test
+void
+AnalysisSidebar::perfTestIntervalSelected()
+{
+    QTreeWidgetItem *userIntervals = trees.value(RideFileInterval::USER, NULL);
+
+    // what are we renaming?
+    if (context->currentRideItem() && userIntervals && userIntervals->childCount() &&
+        context->currentRideItem()->intervalsSelected(RideFileInterval::USER).count()) {
+
+        // make the IntervalItem selected flag reflect the current selection state
+        IntervalItem *item = context->currentRideItem()->intervalsSelected(RideFileInterval::USER).first();
+
+        // is it selected and linked ?
+        if (item && item->rideInterval) {
+
+            // set item and ride
+            item->rideInterval->test = item->test = true;
+
+            // mark dirty and tell the charts it changed
+            const_cast<RideItem*>(context->currentRideItem())->setDirty(true);
+            context->notifyIntervalsChanged();
+        }
+    }
+}
+
+// create a USER interval as a performance test copying the highlighted interval
+void
+AnalysisSidebar::createPerfTestIntervalSelected()
+{
+    if (activeInterval && context->currentRideItem()) {
+
+        // just clone it as a user interval
+        const_cast<RideItem*>(context->currentRideItem())->newInterval("Performance Test",
+                                                                       activeInterval->start, activeInterval->stop,
+                                                                       activeInterval->startKM, activeInterval->stopKM,
+                                                                       Qt::red, true);
+
+        // refresh etc
+        context->notifyIntervalsUpdate(context->rideItem());
     }
 }
 
@@ -849,6 +908,7 @@ AnalysisSidebar::editIntervalSelected()
                 // update tree to reflect changes!
                 userIntervals->child(j)->setText(0, activeInterval->name);
                 userIntervals->child(j)->setData(0, Qt::UserRole+1, activeInterval->color);
+                userIntervals->child(j)->setData(0, Qt::UserRole+2, activeInterval->test ? 255 : 0);
 
                 // tell the charts !
                 context->notifyIntervalsChanged();
@@ -861,13 +921,7 @@ AnalysisSidebar::editIntervalSelected()
 void
 AnalysisSidebar::editInterval()
 {
-    IntervalItem temp;
-    temp.name = activeInterval->name;
-    temp.start = activeInterval->start;
-    temp.stop = activeInterval->stop;
-    temp.color = activeInterval->color;
-    temp.rideInterval = activeInterval->rideInterval;
- 
+    IntervalItem temp(*activeInterval);
     EditIntervalDialog dialog(this, temp); // pass by reference
 
     if (dialog.exec()) {
@@ -877,6 +931,7 @@ AnalysisSidebar::editInterval()
         activeInterval->color = temp.color;
         activeInterval->start = temp.start;
         activeInterval->stop = temp.stop;
+        activeInterval->test = temp.test;
         activeInterval->startKM = activeInterval->rideItem()->ride()->timeToDistance(temp.start);
         activeInterval->stopKM = activeInterval->rideItem()->ride()->timeToDistance(temp.stop);
 
@@ -885,6 +940,8 @@ AnalysisSidebar::editInterval()
             activeInterval->rideInterval->name = activeInterval->name;
             activeInterval->rideInterval->start = activeInterval->start;
             activeInterval->rideInterval->stop = activeInterval->stop;
+            activeInterval->rideInterval->test = activeInterval->test;
+            activeInterval->rideInterval->color = activeInterval->color;
             activeInterval->rideItem()->setDirty(true);
 
             // refresh metrics!

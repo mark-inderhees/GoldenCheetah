@@ -60,12 +60,13 @@ class CPPlot : public QwtPlot
 
     public:
 
-        CPPlot(QWidget *parent, Context *, bool rangemode);
+        CPPlot(CriticalPowerWindow *parent, Context *, bool rangemode);
 
         // setters
         void setRide(RideItem *rideItem);
         void setDateRange(const QDate &start, const QDate &end);
         void setShowPercent(bool x);
+        void setShowTest(bool x);
         void setShowBest(bool x);
         void setFilterBest(bool x);
         void setShowHeat(bool x);
@@ -82,7 +83,7 @@ class CPPlot : public QwtPlot
         void setPlotType(int index);
         void showXAxisLinear(bool x);
         void setModel(int sanI1, int sanI2, int anI1, int anI2,
-                      int aeI1, int aeI2, int laeI1, int laeI2, int model, int variant);
+                      int aeI1, int aeI2, int laeI1, int laeI2, int model, int variant, int fit, int fitdata);
 
         // getters
         QVector<double> getBests();
@@ -118,7 +119,7 @@ class CPPlot : public QwtPlot
 
     private:
 
-        QWidget *parent;
+        CriticalPowerWindow *parent;
 
         // calculate / data setting
         void calculateForDateRanges(QList<CompareDateRange> compareDateRanges);
@@ -127,6 +128,7 @@ class CPPlot : public QwtPlot
         // plotters
         void plotRide(RideItem *);
         void plotBests(RideItem *);
+        void plotTests(RideItem *);
         void plotEfforts();
         void plotModel();
         void plotModel(QVector<double> vector, QColor plotColor, PDModel *baseline); // for compare date range models
@@ -145,6 +147,7 @@ class CPPlot : public QwtPlot
 
         // Models and Extended Models
         int model, modelVariant;
+        int fit, fitdata;
         double sanI1, sanI2, anI1, anI2, aeI1, aeI2, laeI1, laeI2;
 
         // Data and State
@@ -164,6 +167,7 @@ class CPPlot : public QwtPlot
         int shadeMode;
         bool shadeIntervals;
         bool rangemode;
+        bool showTest;
         bool showBest;
         bool filterBest;
         bool showPercent;
@@ -192,10 +196,13 @@ class CPPlot : public QwtPlot
         QwtPlotCurve *heatCurve;
         CpPlotCurve *heatAgeCurve;
 
+        QwtPlotCurve *testCurve;
+
         // other plot objects
         QList<QwtPlotMarker*> referenceLines;
         QList<QwtPlotMarker*> allZoneLabels;
         QList<QwtPlotMarker*> cherries;
+        QList<QwtPlotMarker*> performanceTests;
 
         LogTimeScaleDraw *ltsd;
         QwtScaleDraw *sd;
@@ -206,5 +213,11 @@ class CPPlot : public QwtPlot
 
         // the model
         PDModel *pdModel;
+
+        // filtered data
+        QVector<double> filtertime, filterpower;
+
+        // performance tests data
+        QVector<double> testtime, testpower;
 };
 #endif // _GC_CPPlot_h

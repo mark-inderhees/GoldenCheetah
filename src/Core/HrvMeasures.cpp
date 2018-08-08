@@ -148,6 +148,7 @@ HrvMeasureParser::unserialize(QFile &file, QList<HrvMeasure> &data) {
         data.append(m);
     }
 
+    file.close();
     return true;
 }
 
@@ -224,7 +225,7 @@ HrvMeasures::getHrvMeasure(QDate date, HrvMeasure &here) const {
     // loop
     foreach(HrvMeasure x, hrvMeasures_) {
 
-        if (x.when.date() <= date) here = x;
+        if (x.when.date() == date) here = x;
         if (x.when.date() > date) break;
     }
 

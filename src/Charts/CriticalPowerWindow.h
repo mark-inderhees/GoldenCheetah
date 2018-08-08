@@ -50,6 +50,7 @@ class CriticalPowerWindow : public GcChartWindow
     Q_PROPERTY(QString filter READ filter WRITE setFilter USER true)
     Q_PROPERTY(int mode READ mode WRITE setMode USER true)
     Q_PROPERTY(bool showBest READ showBest WRITE setShowBest USER true)
+    Q_PROPERTY(bool showTest READ showTest WRITE setShowTest USER true)
     Q_PROPERTY(bool filterBest READ filterBest WRITE setFilterBest USER true)
     Q_PROPERTY(bool showPercent READ showPercent WRITE setShowPercent USER true)
     Q_PROPERTY(bool showGrid READ showGrid WRITE setShowGrid USER true)
@@ -58,6 +59,8 @@ class CriticalPowerWindow : public GcChartWindow
     Q_PROPERTY(QString season READ season WRITE setSeason USER true)
 
     Q_PROPERTY(int cpmodel READ cpModel WRITE setCPModel USER true)
+    Q_PROPERTY(int fit READ fit WRITE setFit USER true)
+    Q_PROPERTY(int fitdata READ fitdata WRITE setFitdata USER true)
     Q_PROPERTY(int variant READ variant WRITE setVariant USER true)
     Q_PROPERTY(int ani1 READ anI1 WRITE setAnI1 USER true)
     Q_PROPERTY(int ani2 READ anI2 WRITE setAnI2 USER true)
@@ -103,6 +106,12 @@ class CriticalPowerWindow : public GcChartWindow
 
         int cpModel() const { return modelCombo->currentIndex(); }
         void setCPModel(int x) { modelCombo->setCurrentIndex(x); }
+
+        int fit() const { return fitCombo->currentIndex(); }
+        void setFit(int x) { fitCombo->setCurrentIndex(x); }
+
+        int fitdata() const { return fitdataCombo->currentIndex(); }
+        void setFitdata(int x) { fitdataCombo->setCurrentIndex(x); }
 
         int variant() const;
         void setVariant(int x);
@@ -207,6 +216,9 @@ class CriticalPowerWindow : public GcChartWindow
         bool showBest() { return showBestCheck->isChecked(); }
         void setShowBest(bool x) { return showBestCheck->setChecked(x); }
 
+        bool showTest() { return showTestCheck->isChecked(); }
+        void setShowTest(bool x) { return showTestCheck->setChecked(x); }
+
         bool showPercent() { return showPercentCheck->isChecked(); }
         void setShowPercent(bool x) { return showPercentCheck->setChecked(x); }
 
@@ -226,6 +238,7 @@ class CriticalPowerWindow : public GcChartWindow
         void showHeatByDateChanged(int check);
         void showPercentChanged(int check);
         void showBestChanged(int check);
+        void showTestChanged(int check);
         void filterBestChanged(int check);
         void showGridChanged(int check);
         void shadeIntervalsChanged(int state);
@@ -241,7 +254,8 @@ class CriticalPowerWindow : public GcChartWindow
 
         void refreshRideSaved(RideItem*);
         void modelParametersChanged(); // we changed the intervals
-        void modelChanged(); // we changed the model type 
+        void modelChanged(); // we changed the model type
+        void fitChanged();
 
         // reveal controls changed
         void rPercentChanged(int check);
@@ -251,6 +265,9 @@ class CriticalPowerWindow : public GcChartWindow
         // edit CP value used for veloclinic plot
         void setSliderFromEdit();
         void setEditFromSlider();
+
+        // get fit summary
+        void setSummary(QString x) { summary->setText(x); }
 
         // menu option
         void exportData();
@@ -279,6 +296,8 @@ class CriticalPowerWindow : public GcChartWindow
         QLabel *cpintCPValue;
         QComboBox *seriesCombo;
         QComboBox *modelCombo;
+        QComboBox *fitCombo;
+        QComboBox *fitdataCombo;
         QLabel *vlabel;
         QRadioButton *velo1, *velo2, *velo3; // for selecting veloclinic formulation
         QComboBox *cComboSeason;
@@ -290,6 +309,7 @@ class CriticalPowerWindow : public GcChartWindow
         QCheckBox *showHeatByDateCheck;
         QCheckBox *showPercentCheck;
         QCheckBox *showBestCheck;
+        QCheckBox *showTestCheck;
         QCheckBox *filterBestCheck;
         QCheckBox *showGridCheck;
         QCheckBox *rPercent, *rHeat, *rDelta, *rDeltaPercent;
@@ -311,6 +331,7 @@ class CriticalPowerWindow : public GcChartWindow
         QLabel *ftpTitle, *ftpValue, *ftpRank;
         QLabel *pmaxTitle, *pmaxValue, *pmaxRank;
         QLabel *eiTitle, *eiValue;
+        QLabel *summary;
 
         void addSeries();
         void updateOptions(CriticalSeriesType series);

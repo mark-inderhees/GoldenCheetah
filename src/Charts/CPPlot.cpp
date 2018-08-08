@@ -52,17 +52,17 @@
 #include "LTMTrend.h"
 
 
-CPPlot::CPPlot(QWidget *parent, Context *context, bool rangemode) : QwtPlot(parent), parent(parent),
+CPPlot::CPPlot(CriticalPowerWindow *parent, Context *context, bool rangemode) : QwtPlot(parent), parent(parent),
 
     // model
-    model(0), modelVariant(0),
+    model(0), modelVariant(0), fit(0), fitdata(0),
 
     // state
     context(context), bestsCache(NULL), dateCV(0.0), isRun(false), isSwim(false),
     rideSeries(RideFile::watts),
     isFiltered(false), shadeMode(2),
     shadeIntervals(true), rangemode(rangemode), 
-    showBest(true), filterBest(false), showPercent(false), showHeat(false), showHeatByDate(false), showDelta(false), showDeltaPercent(false),
+    showTest(true), showBest(true), filterBest(false), showPercent(false), showHeat(false), showHeatByDate(false), showDelta(false), showDeltaPercent(false),
     plotType(0),
     xAxisLinearOnSpeed(true),
 
@@ -151,12 +151,21 @@ CPPlot::setAxisTitle(int axis, QString label)
 void
 CPPlot::setDateRange(const QDate &start, const QDate &end)
 {
-    // wipe out current - calculate will reinstate
-    startDate = (start == QDate()) ? QDate(1900, 1, 1) : start;
-    endDate = (end == QDate()) ? QDate(3000, 12, 31) : end;
 
-    // we need to replot the bests and model curves
-    clearCurves(); // clears all bar the ride curve
+    // wipe out current - calculate will reinstate
+    QDate istart = (start == QDate()) ? QDate(1900, 1, 1) : start;
+    QDate iend = (end == QDate()) ? QDate(3000, 12, 31) : end;
+
+    // check they actually changed, to avoid ridefilecache aggregation
+    // which is an expensive function
+    if (startDate != istart || endDate != iend) {
+
+        startDate = istart;
+        endDate = iend;
+
+        // we need to replot the bests and model curves
+        clearCurves(); // clears all bar the ride curve
+    }
 }
 
 // what series are we plotting ?
@@ -354,10 +363,31 @@ CPPlot::initModel()
 
     if (pdModel) {
 
-        // set the model and load data
-        pdModel->setIntervals(sanI1, sanI2, anI1, anI2, aeI1, aeI2, laeI1, laeI2);
-        pdModel->setMinutes(true); // we're minutes here ...
-        pdModel->setData(bestsCache->meanMaxArray(rideSeries));
+        if (fit == 0 || model >= 3) { //!!! always envelope fit the ecp, ward-smith and velo model
+
+            // envelope fit always uses all data
+            pdModel->setFit(PDModel::Envelope);
+            pdModel->setIntervals(sanI1, sanI2, anI1, anI2, aeI1, aeI2, laeI1, laeI2);
+            pdModel->setMinutes(true); // we're minutes here ...
+            pdModel->setData(bestsCache->meanMaxArray(rideSeries));
+            pdModel->fitsummary += " [MMP]";
+
+        } else {
+            // LM fit will use filtered data or all data
+            pdModel->setFit(PDModel::LeastSquares);
+            pdModel->setMinutes(true); // ignored by lmfit methods
+            //fprintf(stderr, "best filtered to %d points\n", filtertime.count()); fflush(stderr);
+            if (fitdata && testpower.count() >= 3) {
+                pdModel->setPtData(testpower, testtime);
+                pdModel->fitsummary += " [Perf]";
+            } else {
+                // must have at least 3 points, otherwise drop back to full MMP
+                if (filterBest && filtertime.count() >= 3) pdModel->setPtData(filterpower, filtertime);
+                else pdModel->setData(bestsCache->meanMaxArray(rideSeries));
+                pdModel->fitsummary += " [MMP]";
+            }
+        }
+        parent->setSummary(pdModel->fitsummary);
    }
 
     #if GC_HAVE_MODEL_LABS
@@ -551,7 +581,7 @@ CPPlot::plotModel()
 
             // update the helper widget -- either as watts, w/kg or kph
 
-            if (rideSeries == RideFile::watts) {
+            if (rideSeries == RideFile::watts || rideSeries == RideFile::aPower) {
 
                 // Reset Rank
                 cpw->titleRank->setText(tr("Rank"));
@@ -607,7 +637,7 @@ CPPlot::plotModel()
                     cpw->eiValue->setText(QString("%1").arg(pdModel->WPrime() / pdModel->CP(), 0, 'f', 0));
                 }
 
-            } else if (rideSeries == RideFile::wattsKg) {
+            } else if (rideSeries == RideFile::wattsKg || rideSeries == RideFile::aPowerKg) {
 
                 // Reset Rank
                 cpw->titleRank->setText(tr("Rank"));
@@ -847,7 +877,10 @@ CPPlot::plotModel(QVector<double> vector, QColor plotColor, PDModel *baseline)
     if (pdmodel) {
         pdmodel->setIntervals(sanI1, sanI2, anI1, anI2, aeI1, aeI2, laeI1, laeI2);
         pdmodel->setMinutes(true); // we're minutes here ...
-        pdmodel->setData(vector);
+
+        if (filterBest) {
+
+        } else pdmodel->setData(vector);
     }
 
     // create curve
@@ -943,6 +976,10 @@ CPPlot::clearCurves()
         modelCPCurves.clear();
     }
 
+    // performance test markers
+    foreach(QwtPlotMarker *p, performanceTests) delete p;
+    performanceTests.clear();
+
 }
 
 // get bests or an empty set if it is null
@@ -959,6 +996,106 @@ CPPlot::getBestDates()
 {
     if (bestsCache) return bestsCache->meanMaxDates(rideSeries);
     else return QVector<QDate>();
+}
+
+// for sorting points on x axis
+static bool qpointflessthan(const QPointF &s1, const QPointF &s2)
+{
+            return s1.x() < s2.x();
+}
+
+// plot tests if needed
+void
+CPPlot::plotTests(RideItem *rideitem)
+{
+    // clear out test data
+    testtime.clear();
+    testtime.resize(0);
+    testpower.clear();
+    testpower.resize(0);
+
+    // used to sort
+    QVector<QPointF> points;
+
+    // just plot tests as power duration for now, will reiterate to add others later.
+    if (rideSeries == RideFile::watts || rideSeries == RideFile::wattsKg) {
+
+        // rides to search, this one only -or- all in the date range selected?
+        QList<RideItem*> rides;
+
+        // honoring chart settings and filters, lets set the list of
+        // rides we will search for performance tests...
+        FilterSet fs;
+        fs.addFilter(context->isfiltered, context->filters);
+        fs.addFilter(context->ishomefiltered, context->homeFilters);
+        Specification spec;
+        spec.setFilterSet(fs);
+        spec.setDateRange(DateRange(startDate, endDate));
+
+        foreach(RideItem *r, context->athlete->rideCache->rides()) {
+            // does it match ?
+            if (spec.pass(r)) rides << r;
+        }
+
+        foreach (RideItem *item, rides) {
+            foreach (IntervalItem *interval, item->intervals()) {
+                if (interval->istest()) {
+
+                    double duration = (interval->stop - interval->start) + 1; // add offset used on log axis
+                    double watts = interval->getForSymbol("average_power",  context->athlete->useMetricUnits);
+
+                    // ignore where no power present
+                    if (watts <= 0) continue;
+
+                    // wpk need weight?
+                    if (rideSeries == RideFile::wattsKg) watts /= item->weight;
+
+                    // x and y, we need to sort on x before done
+                    points << QPointF(duration, watts);
+
+                    if (showTest) {
+                        QwtSymbol *sym = new QwtSymbol;
+
+                        // use interval color user selected
+                        sym->setBrush(QBrush(interval->color));
+                        sym->setPen(QPen(Qt::NoPen));
+                        sym->setStyle(QwtSymbol::Diamond);
+
+                        // make it a really big symbol if from todays ride
+                        sym->setSize((12 + (rideitem == item ? 6 : 0))*dpiXFactor);
+
+                        QwtPlotMarker *test = new QwtPlotMarker();
+                        test->setSymbol(sym);
+                        test->setValue(duration/60.00f, watts);
+
+                        QString desc = QString("%3\n%1%4\n%2").arg(watts,0, 'f', rideSeries == RideFile::watts ? 0 : 2)
+                                                             .arg(interval_to_str(duration))
+                                                             .arg(interval->name)
+                                                             .arg(RideFile::unitName(rideSeries, context));
+                        QwtText text(desc);
+                        QFont font; // default
+                        font.setPointSize(8);
+                        text.setFont(font);
+                        text.setRenderFlags((text.renderFlags()&~Qt::AlignCenter)|Qt::AlignLeft);
+                        text.setColor(interval->color);
+                        test->setLabel(text);
+                        test->setLabelAlignment(Qt::AlignTop|Qt::AlignRight);
+
+                        // and attach
+                        test->attach(this);
+                        performanceTests << test;
+                    }
+                }
+            }
+        }
+
+        // now sort the points on x so we can feed to model fit
+        qSort(points.begin(), points.end(), qpointflessthan);
+        foreach(QPointF point, points) {
+            testtime << point.x() / 60.0f;
+            testpower << point.y();
+        }
+    }
 }
 
 // plot the bests curve and refresh the data if needed too
@@ -1175,8 +1312,10 @@ CPPlot::plotBests(RideItem *rideItem)
                             keep.t=t[i];
 
                             // but clear since we iterate beyond
-                            p[i]=0;
-                            t[i]=0;
+                            if (i>0) { // always keep pmax point
+                                p[i]=0;
+                                t[i]=0;
+                            }
 
                             // from here to the end of all the points, lets see if there is one further away?
                             for(int x=i+1; x<t.count(); x++) {
@@ -1193,9 +1332,11 @@ CPPlot::plotBests(RideItem *rideItem)
                                         keep.t = t[x];
                                     }
 
-                                    w[x] = QDate();
-                                    p[x] = 0;
-                                    t[x] = 0;
+                                    if (x>0) { // always keep pmax point
+                                        w[x] = QDate();
+                                        p[x] = 0;
+                                        t[x] = 0;
+                                    }
                                 }
                             }
 
@@ -1205,17 +1346,19 @@ CPPlot::plotBests(RideItem *rideItem)
                         }
                     }
                     // set a series where t > 1
-                    QVector<double> tp;
-                    QVector<double> pp;
+                    filtertime.clear();
+                    filtertime.resize(0);
+                    filterpower.clear();
+                    filterpower.resize(0);
                     for(int i=0; i<t.count(); i++) {
                         if (t[i] >0) {
-                            tp << t[i];
-                            pp << p[i];
+                            filtertime << t[i];
+                            filterpower << p[i];
                         }
                     }
 
                     // only show filtered data
-                    curve->setSamples(tp.data(), pp.data(), pp.count());
+                    curve->setSamples(filtertime.data(), filterpower.data(), filterpower.count());
 
                 } else {
 
@@ -1486,7 +1629,7 @@ CPPlot::plotEfforts()
 
     QwtSymbol *sym = new QwtSymbol;
     sym->setStyle(QwtSymbol::Ellipse);
-    sym->setSize((dpiXFactor * rangemode) ? 4 : 6);
+    sym->setSize(dpiXFactor * (rangemode ? 4 : 6));
     QColor col= GColor(CPOWER);
     col.setAlpha(128);
     sym->setBrush(col);
@@ -1750,6 +1893,9 @@ CPPlot::setRide(RideItem *rideItem)
         plotBests(NULL);
     }
 
+    // plot tests (in ride, or across date range)
+    plotTests(rangemode ? NULL : rideItem);
+
     // Plot Sustained Efforts
     plotEfforts();
 
@@ -1794,6 +1940,12 @@ CPPlot::setRide(RideItem *rideItem)
     // NOW PLOT THE MODEL CURVE
     // it will need to decide if it is relevant etc
     // but we need to make sure we have it
+
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    // IT MUST ALWAYS BE LAST IN THIS METHOD
+    // TO ENSURE MEANMAX AND/ OR FILTERED DATA
+    // HAVE BEEN REFRESHED ABOVE
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     plotModel();
 
     // now replot please
@@ -2008,6 +2160,13 @@ CPPlot::setFilterBest(bool x)
 }
 
 void
+CPPlot::setShowTest(bool x)
+{
+    showTest = x;
+    clearCurves();
+}
+
+void
 CPPlot::setShowBest(bool x)
 {
     showBest = x;
@@ -2068,7 +2227,7 @@ CPPlot::showXAxisLinear(bool x)
 
 // model parameters!
 void
-CPPlot::setModel(int sanI1, int sanI2, int anI1, int anI2, int aeI1, int aeI2, int laeI1, int laeI2, int model, int variant)
+CPPlot::setModel(int sanI1, int sanI2, int anI1, int anI2, int aeI1, int aeI2, int laeI1, int laeI2, int model, int variant, int fit, int fitdata)
 {
     this->anI1 = double(anI1);
     this->anI2 = double(anI2);
@@ -2082,6 +2241,8 @@ CPPlot::setModel(int sanI1, int sanI2, int anI1, int anI2, int aeI1, int aeI2, i
 
     this->model = model;
     this->modelVariant = variant;
+    this->fit = fit;
+    this->fitdata = fitdata;
 
     clearCurves();
 }

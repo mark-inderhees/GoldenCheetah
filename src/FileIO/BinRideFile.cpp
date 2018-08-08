@@ -547,7 +547,7 @@ struct BinFileReaderState
             }
         }
         if (interval>1) {
-            rideFile->addInterval(RideFileInterval::DEVICE, last_interval_secs, secs, QString("%1").arg(interval-1));
+            rideFile->addInterval(RideFileInterval::DEVICE, last_interval_secs, secs, QString("%1").arg(interval-1), Qt::black);
         }
         last_interval_secs = secs;
 
@@ -681,7 +681,7 @@ struct BinFileReaderState
                         default:
                             for (int i = 0; i < field.size; ++i)
                                 read_byte(&bytes_read,&sum);
-                                errors << QString("unsupported field size %1").arg(field.size);
+                            errors << QString("unsupported field size %1").arg(field.size);
                      }
                      values.push_back(v);
                      //printf("- %d : %d\n", field.id, v);

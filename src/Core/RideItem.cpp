@@ -97,32 +97,34 @@ RideItem::setFrom(RideItem&here, bool temp) // used when loading cache/rideDB.js
 
     // don't update the interval pointers if this is a 
     // temporary "fake" rideitem.
-    if (!temp) foreach(IntervalItem *p, intervals_) p->rideItem_ = this;
+    if (!temp)
+        foreach(IntervalItem *p, intervals_)
+            p->rideItem_ = this;
 
-	context = here.context;
-	isdirty = here.isdirty;
+    context = here.context;
+    isdirty = here.isdirty;
     isstale = here.isstale;
-	isedit = here.isedit;
-	skipsave = here.skipsave;
+    isedit = here.isedit;
+    skipsave = here.skipsave;
     if (planned == false)
         path = here.path;
-	fileName = here.fileName;
-	dateTime = here.dateTime;
+    fileName = here.fileName;
+    dateTime = here.dateTime;
     zoneRange = here.zoneRange;
     hrZoneRange = here.hrZoneRange;
     paceZoneRange = here.paceZoneRange;
-	fingerprint = here.fingerprint;
-	metacrc = here.metacrc;
+    fingerprint = here.fingerprint;
+    metacrc = here.metacrc;
     crc = here.crc;
-	timestamp = here.timestamp;
-	dbversion = here.dbversion;
-	udbversion = here.udbversion;
-	color = here.color;
-	present = here.present;
+    timestamp = here.timestamp;
+    dbversion = here.dbversion;
+    udbversion = here.udbversion;
+    color = here.color;
+    present = here.present;
     isRun = here.isRun;
     isSwim = here.isSwim;
-	weight = here.weight;
-	overrides_ = here.overrides_;
+    weight = here.weight;
+    overrides_ = here.overrides_;
     samples = here.samples;
 }
 
@@ -310,21 +312,21 @@ RideItem::moveInterval(int from, int to)
 void
 RideItem::addInterval(IntervalItem item)
 {
-    IntervalItem *add = new IntervalItem();
-    add->setFrom(item);
+    IntervalItem *add = new IntervalItem(item);
     add->rideItem_ = this;
     intervals_ << add;
 }
 
 IntervalItem *
-RideItem::newInterval(QString name, double start, double stop, double startKM, double stopKM)
+RideItem::newInterval(QString name, double start, double stop, double startKM, double stopKM, QColor color, bool test)
 {
     // add a new interval to the end of the list
-    IntervalItem *add = new IntervalItem(this, name, start, stop, startKM, stopKM, 1, 
-                                         standardColor(intervals(RideFileInterval::USER).count()),
-                                         RideFileInterval::USER);
+    color = color == Qt::black ? standardColor(intervals(RideFileInterval::USER).count()) : color;
+
+    IntervalItem *add = new IntervalItem(this, name, start, stop, startKM, stopKM, 1,
+                                         color, test, RideFileInterval::USER);
     // add to RideFile
-    add->rideInterval = ride()->newInterval(name, start, stop);
+    add->rideInterval = ride()->newInterval(name, start, stop, color, test);
 
     // add to list
     intervals_ << add;
@@ -890,6 +892,7 @@ RideItem::updateIntervals()
                                                 f->timeToDistance(end->secs),
                                                 0,
                                                 QColor(Qt::darkBlue),
+                                                false,
                                                 RideFileInterval::ALL);
 
         // same as the whole ride, not need to compute
@@ -927,12 +930,15 @@ RideItem::updateIntervals()
                                                       f->timeToDistance(interval->start),
                                                       f->timeToDistance(interval->stop),
                                                       seq,
-                                                      standardColor(count++),
+                                                      (interval->color == Qt::black) ? standardColor(count) : interval->color,
+                                                      interval->test,
                                                       RideFileInterval::USER);
+
         intervalItem->rideInterval = interval;
         intervalItem->refresh();        // XXX will get called in constructor when refactor
         intervals_ << intervalItem;
 
+        count++;
         //qDebug()<<"interval:"<<interval.name<<interval.start<<interval.stop<<"f:"<<begin->secs<<end->secs;
     }
 
@@ -963,6 +969,7 @@ RideItem::updateIntervals()
                                                             f->timeToDistance(results[0].stop),
                                                             count++,
                                                             QColor(Qt::gray),
+                                                            false,
                                                             RideFileInterval::PEAKPOWER);
                 intervalItem->rideInterval = NULL;
                 intervalItem->refresh();        // XXX will get called in constructore when refactor
@@ -999,6 +1006,7 @@ RideItem::updateIntervals()
                                                             f->timeToDistance(results[0].stop),
                                                             count++,
                                                             QColor(Qt::gray),
+                                                            false,
                                                             RideFileInterval::PEAKPACE);
                 intervalItem->rideInterval = NULL;
                 intervalItem->refresh();        // XXX will get called in constructore when refactor
@@ -1278,13 +1286,13 @@ RideItem::updateIntervals()
                                                 QString(tr("L%3 TTE of %1  (%2 watts)")).arg(time_to_string(x.duration)).arg(x.joules/x.duration).arg(zone),
                                                 x.start, x.start+x.duration, 
                                                 f->timeToDistance(x.start), f->timeToDistance(x.start+x.duration),
-                                                count++, QColor(Qt::red), RideFileInterval::EFFORT);
+                                                count++, QColor(Qt::red), false, RideFileInterval::EFFORT);
             } else {
                 intervalItem = new IntervalItem(this, 
                                                 QString(tr("L%4 %3% EFFORT of %1  (%2 watts)")).arg(time_to_string(x.duration)).arg(x.joules/x.duration).arg(int(x.quality*100)).arg(zone),
                                                 x.start, x.start+x.duration, 
                                                 f->timeToDistance(x.start), f->timeToDistance(x.start+x.duration),
-                                                count++, QColor(Qt::red), RideFileInterval::EFFORT);
+                                                count++, QColor(Qt::red), false, RideFileInterval::EFFORT);
             }
 
             intervalItem->rideInterval = NULL;
@@ -1305,7 +1313,7 @@ RideItem::updateIntervals()
                                             QString(tr("L%3 SPRINT of %1 secs (%2 watts)")).arg(x.duration).arg(x.joules/x.duration).arg(zone),
                                             x.start, x.start+x.duration,
                                             f->timeToDistance(x.start), f->timeToDistance(x.start+x.duration),
-                                            count++, QColor(Qt::red), RideFileInterval::EFFORT);
+                                            count++, QColor(Qt::red), false, RideFileInterval::EFFORT);
 
 
             intervalItem->rideInterval = NULL;
@@ -1417,6 +1425,7 @@ RideItem::updateIntervals()
                                                                           pstop->km,
                                                                           count++,
                                                                           QColor(Qt::green),
+                                                                          false,
                                                                           RideFileInterval::CLIMB);
                             intervalItem->rideInterval = NULL;
                             intervalItem->refresh();        // XXX will get called in constructore when refactor
@@ -1433,6 +1442,7 @@ RideItem::updateIntervals()
             }
         }
         out << "STOP" << QDateTime::currentDateTime().toString() + "\r\n";
+        log.close();
     }
 
 
@@ -1467,6 +1477,7 @@ RideItem::updateIntervals()
                                                             f->timeToDistance(match.start), f->timeToDistance(match.stop),
                                                             count++,
                                                             match.exhaust ? QColor(255,69,0) : QColor(255,165,0),
+                                                            false, // XXX FIXME should this be a test if to exhaustion ??? XXX
                                                             RideFileInterval::EFFORT);
                 intervalItem->rideInterval = NULL;
                 intervalItem->refresh();        // XXX will get called in constructore when refactor

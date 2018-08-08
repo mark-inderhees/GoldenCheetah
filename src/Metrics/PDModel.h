@@ -20,6 +20,7 @@
 #include <QString>
 
 #include "Context.h"
+#include <cmath>
 
 // series data from a function
 #include <qwt_series_data.h>
@@ -63,15 +64,24 @@ class PDModel : public QObject, public QwtSyntheticPointData
 
     public:
 
+
+        enum fittype { Envelope,                 // envelope fit
+                       LeastSquares,             // uses Levenberg-Marquardt Damped Least Squares
+                     } fit;
+
         PDModel(Context *context);
 
         // set which variant of the model to use (if the model
         // supports such a thing it needs to reimplement)
         virtual void setVariant(int) {}
 
+        // set fit method
+        void setFit(fittype x) { fit=x; }
+
         // set data using doubles or float always
         void setData(QVector<double> meanMaxPower);
         void setData(QVector<float> meanMaxPower);
+        void setPtData(QVector<double> power, QVector<double> secs);
 
         void setMinutes(bool); // use minutes in y()
 
@@ -81,7 +91,7 @@ class PDModel : public QObject, public QwtSyntheticPointData
 
         // provide data to a QwtPlotCurve
         double x(unsigned int index) const; 
-        virtual double y(double /* t */) const { return 0; }
+        virtual double y(double /* t */) const = 0;
 
         // return an estimate of vo2max using the predicted 5m power
         // if using a model using w/kg then it will return ml/min/kg
@@ -119,10 +129,20 @@ class PDModel : public QObject, public QwtSyntheticPointData
         // in the data series to calculate cp, tau and t0.
         void deriveCPParameters(int model); 
 
+        // when using lest squares fitting
+        virtual int nparms() { return -1; }
+        virtual double f(double, const double *) { return -1; }
+        virtual bool setParms(double *) { return false; }
+
         // we identify peak efforts when modelling
         // lets make these available, currently only
         // available with the extended CP model
         QList<QPointF> cherries();
+
+        // calculate the fit summary
+        void calcSummary();
+
+        QString fitsummary;
 
     protected:
 
@@ -146,6 +166,9 @@ class PDModel : public QObject, public QwtSyntheticPointData
 
         // mean max power data set by setData
         QVector<double> data;
+
+        // specific points to fit (using OLS usually)
+        QVector<double> tdata;
 
         // map of points used; secs, watts
         QMap<int,double> map;
@@ -183,7 +206,20 @@ class CP2Model : public PDModel
         CP2Model(Context *context);
 
         // synthetic data for a curve
-        double y(double t) const;
+        virtual double y(double t) const;
+
+        // when using lest squares fitting
+        int nparms() { return 2; } // CP + W'
+        double f(double t, const double *parms) {
+            return parms[0] + (parms[1]/t);
+        }
+        bool setParms(double *parms) {
+
+            // set the model parameters with the values from the fit
+            cp = parms[0];
+            tau = parms[1] / (cp * 60);
+            return true;
+        }
 
         bool hasWPrime() { return true; }  // can estimate W'
         bool hasCP()     { return true; }  // can estimate W'
@@ -215,7 +251,24 @@ class CP3Model : public PDModel
         CP3Model(Context *context);
 
         // synthetic data for a curve
-        double y(double t) const;
+        virtual double y(double t) const;
+
+        // working with least squares
+        int nparms() { return 3; }
+        double f(double t, const double *parms) {
+            double cp = parms[0];
+            double w = parms[1];
+            double k = parms[2];
+
+            return cp + (w/(t+k));
+        }
+        bool setParms(double *parms) {
+            this->cp = parms[0];
+            this->tau = parms[1] / (cp * 60.00);
+            double pmax = parms[0] + (parms[1]/(1+parms[2]));
+            this->t0 = this->tau / (pmax / this->cp - 1) - 1 / 60.0;
+            return true;
+        }
 
         bool hasWPrime() { return true; }  // can estimate W'
         bool hasCP()     { return true; }  // can CP
@@ -247,7 +300,7 @@ class WSModel : public PDModel // ward-smith
         WSModel(Context *context);
 
         // synthetic data for a curve
-        double y(double t) const;
+        virtual double y(double t) const;
 
         bool hasWPrime() { return true; }  // can estimate W'
         bool hasCP()     { return true; }  // can CP
@@ -282,7 +335,7 @@ class MultiModel : public PDModel
         void setVariant(int); // which variant to use
 
         // synthetic data for a curve
-        double y(double t) const;
+        virtual double y(double t) const;
 
         bool hasWPrime() { return true; }  // can estimate W'
         bool hasCP()     { return true; }  // can CP
@@ -321,7 +374,81 @@ class ExtendedModel : public PDModel
         ExtendedModel(Context *context);
 
         // synthetic data for a curve
-        double y(double t) const;
+        virtual double y(double t) const;
+
+        int nparms() { return 8; }
+        double f(double x, const double *parms) {
+
+            double paa = parms[0];
+            double paadec  = parms[1];
+            double cp = parms[2];
+            double tau = parms[3];
+            double taudel  = parms[4];
+            double cpdel = parms[5];
+            double cpdec = parms[6];
+            double cpdecdel = parms[7];
+
+            x = x/60.00;
+
+#if 0       // constrain the fit
+            if (paa < paa_min) paa = paa_min;
+            if (tau < etau_min) etau = etau_min;
+            if (paadec < paa_dec_min) paadec = paa_dec_min;
+            if (paadec > paa_dec_max) paadec = paa_dec_max;
+            if (cpdec < ecp_dec_min) cpdec = ecp_dec_min;
+#endif
+
+            double rt= (paa*(1.20-0.20*exp(-1*x))*exp(paadec*(x))
+                    + ( cp * (1-exp(taudel*x)) *
+                    (1-exp(cpdel*x)) *
+                    (1+cpdec*exp(cpdecdel/x)) *
+                    (tau/(x)))
+                    + ( cp * (1-exp(taudel*x)) *
+                    (1-exp(cpdel*x)) *
+                    (1+cpdec*exp(cpdecdel/x)) *
+                    (1)));
+            if (std::isinf(rt) || std::isnan(rt)) rt=0;
+            return rt;
+
+        }
+
+        bool setParms(double *parms) {
+
+            paa = parms[0];
+            paa_dec = parms[1];
+            ecp = parms[2];
+            etau = parms[3];
+            tau_del = parms[4];
+            ecp_del = parms[5];
+            ecp_dec = parms[6];
+            ecp_dec_del = parms[7];
+#if 0
+            // constrain the fit
+            if (paa < paa_min) paa = paa_min;
+            if (tau < etau_min) etau = etau_min;
+            if (paa_dec < paa_dec_min) paa_dec = paa_dec_min;
+            if (paa_dec > paa_dec_max) paa_dec = paa_dec_max;
+            if (ecp_dec < ecp_dec_min) ecp_dec = ecp_dec_min;
+#endif
+
+            return true;
+        }
+
+        // parameter constraints (still not physiologically plausible)
+
+        // lower bound
+        const double paa_min = 400;
+        const double etau_min = 0.5;
+        const double paa_dec_max = -0.25;
+        const double paa_dec_min = -3;
+        const double ecp_dec_min = -5;
+
+        // convergence delta
+        const double etau_delta_max = 1e-4;
+        const double paa_delta_max = 1e-2;
+        const double paa_dec_delta_max = 1e-4;
+        const double ecp_del_delta_max = 1e-4;
+        const double ecp_dec_delta_max  = 1e-8;
 
         bool hasWPrime() { return true; }  // can estimate W'
         bool hasCP()     { return true; }  // can CP
